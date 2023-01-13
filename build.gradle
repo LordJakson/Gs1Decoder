@@ -8,15 +8,15 @@ java {
     targetCompatibility = JavaVersion.VERSION_1_7
 }
 
-afterEvaluate {
-    publishing {
-        publications {
-            release(MavenPublication) {
-                from components.release
+publishing {
+    publications {
+        register<MavenPublication>("release") {
+            groupId = 'com.github.LordJakson'
+            artifactId = 'Gs1Decoder'
+            version = '0.3'
 
-                groupId = 'com.github.LordJakson'
-                artifactId = 'Gs1Decoder'
-                version = '0.2'
+            afterEvaluate {
+                from(components["release"])
             }
         }
     }
