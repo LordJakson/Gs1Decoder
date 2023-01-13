@@ -13,11 +13,7 @@ publishing {
         register<MavenPublication>("release") {
             groupId = 'com.github.LordJakson'
             artifactId = 'Gs1Decoder'
-            version = '0.3'
-
-            afterEvaluate {
-                from(components["release"])
-            }
+            version = '0.3'            
         }
     }
 }
