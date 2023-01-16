@@ -14,6 +14,18 @@ public class Gs1DataFields
     // x5F     = _
     // x61-x7A = a-z{
 
+    public static class Field_Result
+    {
+        public final Gs1DataField_Type fieldResult;
+        public final String data;
+
+        public Field_Result(Gs1DataField_Type fieldResult, String data)
+        {
+            this.fieldResult = fieldResult;
+            this.data = data;
+        }
+    }
+
     public static class Field_Item implements Gs1DataField_Type
     {
         public final String applicationIdentifier;
@@ -49,13 +61,7 @@ public class Gs1DataFields
             items = new HashMap<>();
         }
 
-        private void addItem(String key, String applicationIdentifier, String title, String regEx, int dataLen, boolean varLen, boolean varDec)
-        {
-            Field_Item result = new Field_Item(applicationIdentifier, title, regEx, dataLen, varLen, varDec);
-            items.put(key, result);
-        }
-
-        private Field_List addList(String key)
+        Field_List addList(String key)
         {
             Field_List result = new Field_List();
             items.put(key, result);
@@ -67,6 +73,12 @@ public class Gs1DataFields
             return items.get(key);
         }
 
+        void addItem(String key, String applicationIdentifier, String title, String regEx, int dataLen, boolean varLen, boolean varDec)
+        {
+            Field_Item result = new Field_Item(applicationIdentifier, title, regEx, dataLen, varLen, varDec);
+            items.put(key, result);
+        }
+
         @Override
         public int valueType()
         {
@@ -74,16 +86,59 @@ public class Gs1DataFields
         }
     }
 
-    public static Field_List root = initGs1Data();
-
-    private static Field_List initGs1Data()
+    public static class Field_ListRoot extends Field_List
     {
-        Field_List root = new Field_List();
+        public Field_Result findItem(Gs1DataBuffer buffer)
+        {
+            String ai = buffer.readDataFix(2);
+            Gs1DataField_Type temp_item = Gs1DataFields.root.getItem(ai);
+            if (temp_item != null)
+            {
+                while (temp_item != null && temp_item.valueType() == Gs1DataField_Type.GS_LIST)
+                {
+                    String ai_sub = buffer.readDataFix(1);
+                    ai += ai_sub;
+                    temp_item = ((Gs1DataFields.Field_List) temp_item).getItem(ai_sub);
+                }
+            }
+
+            return new Field_Result(temp_item, ai);
+        }
+
+        public Field_Result findItem(String key)
+        {
+            StringBuilder strBuilder = new StringBuilder(key);
+            String ai = strBuilder.substring(0, 2);
+            strBuilder.delete(0, 2);
+            Gs1DataField_Type temp_item = Gs1DataFields.root.getItem(ai);
+            if (temp_item != null)
+            {
+                while (temp_item != null && temp_item.valueType() == Gs1DataField_Type.GS_LIST)
+                {
+                    if (strBuilder.length() <= 0)
+                    {
+                        return new Field_Result(null, key);
+                    }
+                    String ai_sub = "" + strBuilder.charAt(0);
+                    strBuilder.deleteCharAt(0);
+                    temp_item = ((Gs1DataFields.Field_List) temp_item).getItem(ai_sub);
+                }
+            }
+
+            return new Field_Result(temp_item, strBuilder.toString());
+        }
+    }
+
+    public static Field_ListRoot root = initGs1Data();
+
+    private static Field_ListRoot initGs1Data()
+    {
+        Field_ListRoot root = new Field_ListRoot();
 
         root.addItem("00", "00", "SSCC", "^00(\\d{18})$", 18, false, false);
         root.addItem("01", "01", "GTIN", "^01(\\d{14})$", 14, false, false);
         root.addItem("02", "02", "CONTENT", "^02(\\d{14})$", 14, false, false);
-        root.addItem("10", "10", "BATCH_LOT", "^10("+VALID_CHARS+"{0,20})$", 0, true, false);
+        root.addItem("10", "10", "BATCH_LOT", "^10(" + VALID_CHARS + "{0,20})$", 0, true, false);
         root.addItem("11", "11", "PROD_DATE", "^11(\\d{6})$", 6, false, false);
         root.addItem("12", "12", "DUE_DATE", "^12(\\d{6})$", 6, false, false);
         root.addItem("13", "13", "PACK_DATE", "^13(\\d{6})$", 6, false, false);
@@ -91,22 +146,22 @@ public class Gs1DataFields
         root.addItem("16", "16", "SELL_BY", "^16(\\d{6})$", 6, false, false);
         root.addItem("17", "17", "USE_BY_EXPIRY", "^17(\\d{6})$", 6, false, false);
         root.addItem("20", "20", "VARIANT", "^20(\\d{2})$", 2, false, false);
-        root.addItem("21", "21", "SERIAL", "^21("+VALID_CHARS+"{0,20})$", 0, true, false);
-        root.addItem("22", "22", "CPV", "^22("+VALID_CHARS+"{0,20})$", 0, true, false);
+        root.addItem("21", "21", "SERIAL", "^21(" + VALID_CHARS + "{0,20})$", 0, true, false);
+        root.addItem("22", "22", "CPV", "^22(" + VALID_CHARS + "{0,20})$", 0, true, false);
         Field_List group23 = root.addList("23");
-        group23.addItem("5", "235", "TPX", "^235("+VALID_CHARS+"{0,28})$", 0, true, false);
+        group23.addItem("5", "235", "TPX", "^235(" + VALID_CHARS + "{0,28})$", 0, true, false);
 
         Field_List group24 = root.addList("24");
-        group24.addItem("0", "240", "ADDITIONAL_ID", "^240("+VALID_CHARS+"{0,30})$", 0, true, false);
-        group24.addItem("1", "241", "CUST_PART_NO", "^241("+VALID_CHARS+"{0,30})$", 0, true, false);
+        group24.addItem("0", "240", "ADDITIONAL_ID", "^240(" + VALID_CHARS + "{0,30})$", 0, true, false);
+        group24.addItem("1", "241", "CUST_PART_NO", "^241(" + VALID_CHARS + "{0,30})$", 0, true, false);
         group24.addItem("2", "242", "MTO_VARIANT", "^242(\\d{0,6})$", 0, true, false);
-        group24.addItem("3", "243", "PCN", "^243("+VALID_CHARS+"{0,20})$", 0, true, false);
+        group24.addItem("3", "243", "PCN", "^243(" + VALID_CHARS + "{0,20})$", 0, true, false);
 
         Field_List group25 = root.addList("25");
-        group25.addItem("0", "250", "SECONDARY_SERIAL", "^250("+VALID_CHARS+"{0,30})$", 0, true, false);
-        group25.addItem("1", "251", "REF_TO_SOURCE", "^251("+VALID_CHARS+"{0,30})$", 0, true, false);
-        group25.addItem("3", "253", "GDTI", "^253(\\d{13})("+VALID_CHARS+"{0,17})$", 0, true, false);
-        group25.addItem("4", "254", "GLN_EXTENSION_COMPONENT", "^254("+VALID_CHARS+"{0,20})$", 0, true, false);
+        group25.addItem("0", "250", "SECONDARY_SERIAL", "^250(" + VALID_CHARS + "{0,30})$", 0, true, false);
+        group25.addItem("1", "251", "REF_TO_SOURCE", "^251(" + VALID_CHARS + "{0,30})$", 0, true, false);
+        group25.addItem("3", "253", "GDTI", "^253(\\d{13})(" + VALID_CHARS + "{0,17})$", 0, true, false);
+        group25.addItem("4", "254", "GLN_EXTENSION_COMPONENT", "^254(" + VALID_CHARS + "{0,20})$", 0, true, false);
         group25.addItem("5", "255", "GCN", "^255(\\d{13})(\\d{0,12})$", 0, true, false);
 
         root.addItem("30", "30", "VAR_COUNT", "^30(\\d{0,8})$", 0, true, false);
@@ -185,10 +240,10 @@ public class Gs1DataFields
         group39.addItem("5", "395", "PRICE_UOM", "^395([0-9])(\\d{0,6})$", 6, false, true);
 
         Field_List group40 = root.addList("40");
-        group40.addItem("0", "400", "ORDER_NUMBER", "^400("+VALID_CHARS+"{0,30})$", 0, true, false);
-        group40.addItem("1", "401", "GINC", "^401("+VALID_CHARS+"{0,30})$", 0, true, false);
+        group40.addItem("0", "400", "ORDER_NUMBER", "^400(" + VALID_CHARS + "{0,30})$", 0, true, false);
+        group40.addItem("1", "401", "GINC", "^401(" + VALID_CHARS + "{0,30})$", 0, true, false);
         group40.addItem("2", "402", "GSIN", "^402(\\d{17})$", 17, false, false);
-        group40.addItem("3", "403", "ROUTE", "^403("+VALID_CHARS+"{0,30})$", 0, true, false);
+        group40.addItem("3", "403", "ROUTE", "^403(" + VALID_CHARS + "{0,30})$", 0, true, false);
 
         Field_List group41 = root.addList("41");
         group41.addItem("0", "410", "SHIP_TO_LOC", "^410(\\d{13})$", 13, false, false);
@@ -201,42 +256,42 @@ public class Gs1DataFields
         group41.addItem("7", "417", "PARTY", "^417(\\d{13})$", 13, false, false);
 
         Field_List group42 = root.addList("42");
-        group42.addItem("0", "420", "SHIP_TO_POST", "^420("+VALID_CHARS+"{0,20})$", 0, true, false);
-        group42.addItem("1", "421", "SHIP_TO_POST", "^421(\\d{3})("+VALID_CHARS+"{0,9})$", 0, true, false);
+        group42.addItem("0", "420", "SHIP_TO_POST", "^420(" + VALID_CHARS + "{0,20})$", 0, true, false);
+        group42.addItem("1", "421", "SHIP_TO_POST", "^421(\\d{3})(" + VALID_CHARS + "{0,9})$", 0, true, false);
         group42.addItem("2", "422", "ORIGIN", "^422(\\d{3})$", 3, false, false);
         group42.addItem("3", "423", "COUNTRY_INITIAL_PROCESS", "^423(\\d{3})(\\d{0,12})$", 0, true, false);
         group42.addItem("4", "424", "COUNTRY_PROCESS", "^424(\\d{3})$", 3, false, false);
         group42.addItem("5", "425", "COUNTRY_DISASSEMBLY", "^425(\\d{3})(\\d{0,12})$", 0, true, false);
         group42.addItem("6", "426", "COUNTRY_FULL_PROCESS", "^426(\\d{3})$", 3, false, false);
-        group42.addItem("7", "427", "ORIGIN_SUBDIVISION", "^427("+VALID_CHARS+"{0,3})$", 0, true, false);
+        group42.addItem("7", "427", "ORIGIN_SUBDIVISION", "^427(" + VALID_CHARS + "{0,3})$", 0, true, false);
 
         Field_List group43 = root.addList("43");
         Field_List group430 = group43.addList("0");
-        group430.addItem("0", "4300", "SHIP_TO_COMP", "^4300("+VALID_CHARS+"{0,35})$", 0, true, false);
-        group430.addItem("1", "4301", "SHIP_TO_NAME", "^4301("+VALID_CHARS+"{0,35})$", 0, true, false);
-        group430.addItem("2", "4302", "SHIP_TO_ADD1", "^4302("+VALID_CHARS+"{0,70})$", 0, true, false);
-        group430.addItem("3", "4303", "SHIP_TO_ADD2", "^4303("+VALID_CHARS+"{0,70})$", 0, true, false);
-        group430.addItem("4", "4304", "SHIP_TO_SUB", "^4304("+VALID_CHARS+"{0,70})$", 0, true, false);
-        group430.addItem("5", "4305", "SHIP_TO_LOC", "^4305("+VALID_CHARS+"{0,70})$", 0, true, false);
-        group430.addItem("6", "4306", "SHIP_TO_REG", "^4306("+VALID_CHARS+"{0,70})$", 0, true, false);
+        group430.addItem("0", "4300", "SHIP_TO_COMP", "^4300(" + VALID_CHARS + "{0,35})$", 0, true, false);
+        group430.addItem("1", "4301", "SHIP_TO_NAME", "^4301(" + VALID_CHARS + "{0,35})$", 0, true, false);
+        group430.addItem("2", "4302", "SHIP_TO_ADD1", "^4302(" + VALID_CHARS + "{0,70})$", 0, true, false);
+        group430.addItem("3", "4303", "SHIP_TO_ADD2", "^4303(" + VALID_CHARS + "{0,70})$", 0, true, false);
+        group430.addItem("4", "4304", "SHIP_TO_SUB", "^4304(" + VALID_CHARS + "{0,70})$", 0, true, false);
+        group430.addItem("5", "4305", "SHIP_TO_LOC", "^4305(" + VALID_CHARS + "{0,70})$", 0, true, false);
+        group430.addItem("6", "4306", "SHIP_TO_REG", "^4306(" + VALID_CHARS + "{0,70})$", 0, true, false);
         group430.addItem("7", "4307", "SHIP_TO_COUNTRY", "^4307([A-Z]{2})$", 2, false, false);
-        group430.addItem("8", "4308", "SHIP_TO_PHONE", "^4308("+VALID_CHARS+"{0,30})$", 0, true, false);
+        group430.addItem("8", "4308", "SHIP_TO_PHONE", "^4308(" + VALID_CHARS + "{0,30})$", 0, true, false);
         group430.addItem("9", "4309", "SHIP_TO_GEO", "^4309(\\d{20})$", 20, false, false);
 
         Field_List group431 = group43.addList("1");
-        group431.addItem("0", "4310", "RTN_TO_COMP", "^4310("+VALID_CHARS+"{0,35})$", 0, true, false);
-        group431.addItem("1", "4311", "RTN_TO_NAME", "^4311("+VALID_CHARS+"{0,35})$", 0, true, false);
-        group431.addItem("2", "4312", "RTN_TO_ADD1", "^4312("+VALID_CHARS+"{0,70})$", 0, true, false);
-        group431.addItem("3", "4313", "RTN_TO_ADD2", "^4313("+VALID_CHARS+"{0,70})$", 0, true, false);
-        group431.addItem("4", "4314", "RTN_TO_SUB", "^4314("+VALID_CHARS+"{0,70})$", 0, true, false);
-        group431.addItem("5", "4315", "RTN_TO_LOC", "^4315("+VALID_CHARS+"{0,70})$", 0, true, false);
-        group431.addItem("6", "4316", "RTN_TO_REG", "^4316("+VALID_CHARS+"{0,70})$", 0, true, false);
+        group431.addItem("0", "4310", "RTN_TO_COMP", "^4310(" + VALID_CHARS + "{0,35})$", 0, true, false);
+        group431.addItem("1", "4311", "RTN_TO_NAME", "^4311(" + VALID_CHARS + "{0,35})$", 0, true, false);
+        group431.addItem("2", "4312", "RTN_TO_ADD1", "^4312(" + VALID_CHARS + "{0,70})$", 0, true, false);
+        group431.addItem("3", "4313", "RTN_TO_ADD2", "^4313(" + VALID_CHARS + "{0,70})$", 0, true, false);
+        group431.addItem("4", "4314", "RTN_TO_SUB", "^4314(" + VALID_CHARS + "{0,70})$", 0, true, false);
+        group431.addItem("5", "4315", "RTN_TO_LOC", "^4315(" + VALID_CHARS + "{0,70})$", 0, true, false);
+        group431.addItem("6", "4316", "RTN_TO_REG", "^4316(" + VALID_CHARS + "{0,70})$", 0, true, false);
         group431.addItem("7", "4317", "RTN_TO_COUNTRY", "^4317([A-Z]{2})$", 2, false, false);
-        group431.addItem("8", "4318", "RTN_TO_POST", "^4318("+VALID_CHARS+"{0,20})$", 0, true, false);
-        group431.addItem("9", "4319", "RTN_TO_PHONE", "^4319("+VALID_CHARS+"{0,30})$", 0, true, false);
+        group431.addItem("8", "4318", "RTN_TO_POST", "^4318(" + VALID_CHARS + "{0,20})$", 0, true, false);
+        group431.addItem("9", "4319", "RTN_TO_PHONE", "^4319(" + VALID_CHARS + "{0,30})$", 0, true, false);
 
         Field_List group432 = group43.addList("2");
-        group432.addItem("0", "4320", "SRV_DESCRIPTION", "^4320("+VALID_CHARS+"{0,35})$", 0, true, false);
+        group432.addItem("0", "4320", "SRV_DESCRIPTION", "^4320(" + VALID_CHARS + "{0,35})$", 0, true, false);
         group432.addItem("1", "4321", "DANGEROUS_GOODS", "^4321([01])$", 1, false, false);
         group432.addItem("2", "4322", "AUTH_TO_LEAVE", "^4322([01])$", 1, false, false);
         group432.addItem("3", "4323", "SIG_REQUIRED", "^4323([01])$", 1, false, false);
@@ -247,60 +302,60 @@ public class Gs1DataFields
         Field_List group70 = root.addList("70");
         Field_List group700 = group70.addList("0");
         group700.addItem("1", "7001", "NSN", "^7001(\\d{13})$", 13, false, false);
-        group700.addItem("2", "7002", "MEAT_CUT", "^7002("+VALID_CHARS+"{0,30})$", 0, true, false);
+        group700.addItem("2", "7002", "MEAT_CUT", "^7002(" + VALID_CHARS + "{0,30})$", 0, true, false);
         group700.addItem("3", "7003", "EXPIRY_TIME", "^7003(\\d{10})$", 10, false, false);
         group700.addItem("4", "7004", "ACTIVE_POTENCY", "^7004(\\d{0,4})$", 0, true, false);
-        group700.addItem("5", "7005", "CATCH_AREA", "^7005("+VALID_CHARS+"{0,12})$", 0, true, false);
+        group700.addItem("5", "7005", "CATCH_AREA", "^7005(" + VALID_CHARS + "{0,12})$", 0, true, false);
         group700.addItem("6", "7006", "FIRST_FREEZE_DATE", "^7006(\\d{6})$", 6, false, false);
         group700.addItem("7", "7007", "HARVEST_DATE", "^7007(\\d{6,12})$", 0, true, false);
-        group700.addItem("8", "7008", "AQUATIC_SPECIES", "^7008("+VALID_CHARS+"{0,3})$", 0, true, false);
-        group700.addItem("9", "7009", "FISHING_GEAR_TYPE", "^7009("+VALID_CHARS+"{0,10})$", 0, true, false);
+        group700.addItem("8", "7008", "AQUATIC_SPECIES", "^7008(" + VALID_CHARS + "{0,3})$", 0, true, false);
+        group700.addItem("9", "7009", "FISHING_GEAR_TYPE", "^7009(" + VALID_CHARS + "{0,10})$", 0, true, false);
 
         Field_List group701 = group70.addList("1");
-        group701.addItem("0", "7010", "PROD_METHOD", "^7010("+VALID_CHARS+"{0,2})$", 0, true, false);
+        group701.addItem("0", "7010", "PROD_METHOD", "^7010(" + VALID_CHARS + "{0,2})$", 0, true, false);
         group701.addItem("1", "7011", "TEST_BY_DATE", "^7011(\\d{6})(\\d{0,4})$", 0, true, false);
 
         Field_List group702 = group70.addList("2");
-        group702.addItem("0", "7020", "REFURB_LOT", "^7020("+VALID_CHARS+"{0,20})$", 0, true, false);
-        group702.addItem("1", "7021", "FUNC_STAT", "^7021("+VALID_CHARS+"{0,20})$", 0, true, false);
-        group702.addItem("2", "7022", "REV_STAT", "^7022("+VALID_CHARS+"{0,20})$", 0, true, false);
-        group702.addItem("3", "7023", "GIAI_ASSEMBLY", "^7023("+VALID_CHARS+"{0,30})$", 0, true, false);
+        group702.addItem("0", "7020", "REFURB_LOT", "^7020(" + VALID_CHARS + "{0,20})$", 0, true, false);
+        group702.addItem("1", "7021", "FUNC_STAT", "^7021(" + VALID_CHARS + "{0,20})$", 0, true, false);
+        group702.addItem("2", "7022", "REV_STAT", "^7022(" + VALID_CHARS + "{0,20})$", 0, true, false);
+        group702.addItem("3", "7023", "GIAI_ASSEMBLY", "^7023(" + VALID_CHARS + "{0,30})$", 0, true, false);
 
         Field_List group703 = group70.addList("3");
-        group703.addItem("0", "7030", "PROCESSOR_0", "^7030(\\d{3})("+VALID_CHARS+"{0,27})$", 0, true, false);
-        group703.addItem("1", "7031", "PROCESSOR_1", "^7031(\\d{3})("+VALID_CHARS+"{0,27})$", 0, true, false);
-        group703.addItem("2", "7032", "PROCESSOR_2", "^7032(\\d{3})("+VALID_CHARS+"{0,27})$", 0, true, false);
-        group703.addItem("3", "7033", "PROCESSOR_3", "^7033(\\d{3})("+VALID_CHARS+"{0,27})$", 0, true, false);
-        group703.addItem("4", "7034", "PROCESSOR_4", "^7034(\\d{3})("+VALID_CHARS+"{0,27})$", 0, true, false);
-        group703.addItem("5", "7035", "PROCESSOR_5", "^7035(\\d{3})("+VALID_CHARS+"{0,27})$", 0, true, false);
-        group703.addItem("6", "7036", "PROCESSOR_6", "^7036(\\d{3})("+VALID_CHARS+"{0,27})$", 0, true, false);
-        group703.addItem("7", "7037", "PROCESSOR_7", "^7037(\\d{3})("+VALID_CHARS+"{0,27})$", 0, true, false);
-        group703.addItem("8", "7038", "PROCESSOR_8", "^7038(\\d{3})("+VALID_CHARS+"{0,27})$", 0, true, false);
-        group703.addItem("9", "7039", "PROCESSOR_9", "^7039(\\d{3})("+VALID_CHARS+"{0,27})$", 0, true, false);
+        group703.addItem("0", "7030", "PROCESSOR_0", "^7030(\\d{3})(" + VALID_CHARS + "{0,27})$", 0, true, false);
+        group703.addItem("1", "7031", "PROCESSOR_1", "^7031(\\d{3})(" + VALID_CHARS + "{0,27})$", 0, true, false);
+        group703.addItem("2", "7032", "PROCESSOR_2", "^7032(\\d{3})(" + VALID_CHARS + "{0,27})$", 0, true, false);
+        group703.addItem("3", "7033", "PROCESSOR_3", "^7033(\\d{3})(" + VALID_CHARS + "{0,27})$", 0, true, false);
+        group703.addItem("4", "7034", "PROCESSOR_4", "^7034(\\d{3})(" + VALID_CHARS + "{0,27})$", 0, true, false);
+        group703.addItem("5", "7035", "PROCESSOR_5", "^7035(\\d{3})(" + VALID_CHARS + "{0,27})$", 0, true, false);
+        group703.addItem("6", "7036", "PROCESSOR_6", "^7036(\\d{3})(" + VALID_CHARS + "{0,27})$", 0, true, false);
+        group703.addItem("7", "7037", "PROCESSOR_7", "^7037(\\d{3})(" + VALID_CHARS + "{0,27})$", 0, true, false);
+        group703.addItem("8", "7038", "PROCESSOR_8", "^7038(\\d{3})(" + VALID_CHARS + "{0,27})$", 0, true, false);
+        group703.addItem("9", "7039", "PROCESSOR_9", "^7039(\\d{3})(" + VALID_CHARS + "{0,27})$", 0, true, false);
 
         Field_List group704 = group70.addList("4");
         group704.addItem("0", "7040", "UIC_EXT", "^7040(\\d[\\x21-\\x22\\x25-\\x2F\\x30-\\x39\\x41-\\x5A\\x5F\\x61-\\x7A]{3})$", 0, true, false);
 
         Field_List group71 = root.addList("71");
-        group71.addItem("0", "710", "NHRN_PZN", "^710("+VALID_CHARS+"{0,20})$", 0, true, false);
-        group71.addItem("1", "711", "NHRN_CIP", "^711("+VALID_CHARS+"{0,20})$", 0, true, false);
-        group71.addItem("2", "712", "NHRN_CN", "^712("+VALID_CHARS+"{0,20})$", 0, true, false);
-        group71.addItem("3", "713", "NHRN_DRN", "^713("+VALID_CHARS+"{0,20})$", 0, true, false);
-        group71.addItem("4", "714", "NHRN_AIM", "^714("+VALID_CHARS+"{0,20})$", 0, true, false);
-        group71.addItem("5", "715", "NHRN_NDC", "^714("+VALID_CHARS+"{0,20})$", 0, true, false);
+        group71.addItem("0", "710", "NHRN_PZN", "^710(" + VALID_CHARS + "{0,20})$", 0, true, false);
+        group71.addItem("1", "711", "NHRN_CIP", "^711(" + VALID_CHARS + "{0,20})$", 0, true, false);
+        group71.addItem("2", "712", "NHRN_CN", "^712(" + VALID_CHARS + "{0,20})$", 0, true, false);
+        group71.addItem("3", "713", "NHRN_DRN", "^713(" + VALID_CHARS + "{0,20})$", 0, true, false);
+        group71.addItem("4", "714", "NHRN_AIM", "^714(" + VALID_CHARS + "{0,20})$", 0, true, false);
+        group71.addItem("5", "715", "NHRN_NDC", "^714(" + VALID_CHARS + "{0,20})$", 0, true, false);
 
         Field_List group72 = root.addList("72");
         Field_List group723 = group72.addList("3");
-        group723.addItem("0", "7230", "CERT_1", "^7230("+VALID_CHARS+"{2,30})$", 0, true, false);
-        group723.addItem("1", "7231", "CERT_2", "^7231("+VALID_CHARS+"{2,30})$", 0, true, false);
-        group723.addItem("2", "7232", "CERT_3", "^7232("+VALID_CHARS+"{2,30})$", 0, true, false);
-        group723.addItem("3", "7233", "CERT_4", "^7233("+VALID_CHARS+"{2,30})$", 0, true, false);
-        group723.addItem("4", "7234", "CERT_5", "^7234("+VALID_CHARS+"{2,30})$", 0, true, false);
-        group723.addItem("5", "7235", "CERT_6", "^7235("+VALID_CHARS+"{2,30})$", 0, true, false);
-        group723.addItem("6", "7236", "CERT_7", "^7236("+VALID_CHARS+"{2,30})$", 0, true, false);
-        group723.addItem("7", "7237", "CERT_8", "^7237("+VALID_CHARS+"{2,30})$", 0, true, false);
-        group723.addItem("8", "7238", "CERT_9", "^7238("+VALID_CHARS+"{2,30})$", 0, true, false);
-        group723.addItem("9", "7239", "CERT_10", "^7239("+VALID_CHARS+"{2,30})$", 0, true, false);
+        group723.addItem("0", "7230", "CERT_1", "^7230(" + VALID_CHARS + "{2,30})$", 0, true, false);
+        group723.addItem("1", "7231", "CERT_2", "^7231(" + VALID_CHARS + "{2,30})$", 0, true, false);
+        group723.addItem("2", "7232", "CERT_3", "^7232(" + VALID_CHARS + "{2,30})$", 0, true, false);
+        group723.addItem("3", "7233", "CERT_4", "^7233(" + VALID_CHARS + "{2,30})$", 0, true, false);
+        group723.addItem("4", "7234", "CERT_5", "^7234(" + VALID_CHARS + "{2,30})$", 0, true, false);
+        group723.addItem("5", "7235", "CERT_6", "^7235(" + VALID_CHARS + "{2,30})$", 0, true, false);
+        group723.addItem("6", "7236", "CERT_7", "^7236(" + VALID_CHARS + "{2,30})$", 0, true, false);
+        group723.addItem("7", "7237", "CERT_8", "^7237(" + VALID_CHARS + "{2,30})$", 0, true, false);
+        group723.addItem("8", "7238", "CERT_9", "^7238(" + VALID_CHARS + "{2,30})$", 0, true, false);
+        group723.addItem("9", "7239", "CERT_10", "^7239(" + VALID_CHARS + "{2,30})$", 0, true, false);
 
         Field_List group724 = group72.addList("4");
         group724.addItem("0", "7240", "PROTOCOL", "^7240 ([\\x21-\\x22\\x25-\\x2F\\x30-\\x39\\x41-\\x5A\\x5F\\x61-\\x7A]{0,20})$", 0, true, false);
@@ -308,49 +363,49 @@ public class Gs1DataFields
         Field_List group80 = root.addList("80");
         Field_List group800 = group80.addList("0");
         group800.addItem("1", "8001", "DIMENSIONS", "^8001(\\d{14})$", 14, false, false);
-        group800.addItem("2", "8002", "CMT_NO", "^8002("+VALID_CHARS+"{0,20})$", 0, true, false);
-        group800.addItem("3", "8003", "GRAI", "^8003(\\d{14})("+VALID_CHARS+"{0,16})$", 0, true, false);
-        group800.addItem("4", "8004", "GIAI", "^8004("+VALID_CHARS+"{0,30})$", 0, true, false);
+        group800.addItem("2", "8002", "CMT_NO", "^8002(" + VALID_CHARS + "{0,20})$", 0, true, false);
+        group800.addItem("3", "8003", "GRAI", "^8003(\\d{14})(" + VALID_CHARS + "{0,16})$", 0, true, false);
+        group800.addItem("4", "8004", "GIAI", "^8004(" + VALID_CHARS + "{0,30})$", 0, true, false);
         group800.addItem("5", "8005", "PRICE_PER_UNIT", "^8005(\\d{6})$", 6, false, false);
         group800.addItem("6", "8006", "ITIP", "^8006(\\d{14})(\\d{2})(\\d{2})$", 0, true, false);
-        group800.addItem("7", "8007", "IBAN", "^8007("+VALID_CHARS+"{0,34})$", 0, true, false);
+        group800.addItem("7", "8007", "IBAN", "^8007(" + VALID_CHARS + "{0,34})$", 0, true, false);
         group800.addItem("8", "8008", "PROD_TIME", "^8008(\\d{8})(\\d{0,4})$", 0, true, false);
-        group800.addItem("9", "8009", "OPTSEN", "^8009("+VALID_CHARS+"{0,50})$", 0, true, false);
+        group800.addItem("9", "8009", "OPTSEN", "^8009(" + VALID_CHARS + "{0,50})$", 0, true, false);
 
         Field_List group801 = group80.addList("1");
         group801.addItem("0", "8010", "CPID", "^8010([\\x23\\x2D\\x2F\\x30-\\x39\\x41-\\x5A]{5,30})$", 0, true, false);
         group801.addItem("1", "8011", "CPID_SERIAL", "^8011(\\d{0,12})$", 0, true, false);
-        group801.addItem("2", "8012", "VERSION", "^8012("+VALID_CHARS+"{0,20})$", 0, true, false);
-        group801.addItem("3", "8013", "GMN", "^8013("+VALID_CHARS+"{0,25})$", 0, true, false);
+        group801.addItem("2", "8012", "VERSION", "^8012(" + VALID_CHARS + "{0,20})$", 0, true, false);
+        group801.addItem("3", "8013", "GMN", "^8013(" + VALID_CHARS + "{0,25})$", 0, true, false);
         group801.addItem("7", "8017", "GSRN_PROVIDER", "^8017(\\d{18})$", 18, false, false);
         group801.addItem("8", "8018", "GSRN_RECIPIENT", "^8018(\\d{18})$", 18, false, false);
         group801.addItem("9", "8019", "SRIN", "^8019(\\d{0,10})$", 0, true, false);
 
         Field_List group802 = group80.addList("2");
-        group802.addItem("0", "8020", "REF_NO", "^8020("+VALID_CHARS+"{0,25})$", 0, true, false);
+        group802.addItem("0", "8020", "REF_NO", "^8020(" + VALID_CHARS + "{0,25})$", 0, true, false);
         group802.addItem("6", "8026", "ITIP_CONTENT", "^8026(\\d{14})(\\d{2})(\\d{2})$", 18, false, false);
 
 
         Field_List group81 = root.addList("81");
         Field_List group811 = group81.addList("1");
-        group811.addItem("0", "8110", "CCI_NA", "^8110("+VALID_CHARS+"{0,70})$", 0, true, false);
+        group811.addItem("0", "8110", "CCI_NA", "^8110(" + VALID_CHARS + "{0,70})$", 0, true, false);
         group811.addItem("1", "8111", "POINTS", "^8111(\\d{4})$", 4, false, false);
-        group811.addItem("2", "8112", "CCI_PL_NA", "^8112("+VALID_CHARS+"{0,70})$", 0, true, false);
+        group811.addItem("2", "8112", "CCI_PL_NA", "^8112(" + VALID_CHARS + "{0,70})$", 0, true, false);
 
         Field_List group82 = root.addList("82");
         Field_List group820 = group82.addList("0");
-        group820.addItem("0", "8200", "PRODUCT_URL", "^8200("+VALID_CHARS+"{0,70})$", 0, true, false);
+        group820.addItem("0", "8200", "PRODUCT_URL", "^8200(" + VALID_CHARS + "{0,70})$", 0, true, false);
 
-        root.addItem("90", "90", "INFO_BTW_PART", "^90("+VALID_CHARS+"{0,30})$", 0, true, false);
-        root.addItem("91", "91", "INTERNAL_1", "^91("+VALID_CHARS+"{0,90})$", 0, true, false);
-        root.addItem("92", "92", "INTERNAL_2", "^92("+VALID_CHARS+"{0,90})$", 0, true, false);
-        root.addItem("93", "93", "INTERNAL_3", "^93("+VALID_CHARS+"{0,90})$", 0, true, false);
-        root.addItem("94", "94", "INTERNAL_4", "^94("+VALID_CHARS+"{0,90})$", 0, true, false);
-        root.addItem("95", "95", "INTERNAL_5", "^95("+VALID_CHARS+"{0,90})$", 0, true, false);
-        root.addItem("96", "96", "INTERNAL_6", "^96("+VALID_CHARS+"{0,90})$", 0, true, false);
-        root.addItem("97", "97", "INTERNAL_7", "^97("+VALID_CHARS+"{0,90})$", 0, true, false);
-        root.addItem("98", "98", "INTERNAL_8", "^98("+VALID_CHARS+"{0,90})$", 0, true, false);
-        root.addItem("99", "99", "INTERNAL_9", "^99("+VALID_CHARS+"{0,90})$", 0, true, false);
+        root.addItem("90", "90", "INFO_BTW_PART", "^90(" + VALID_CHARS + "{0,30})$", 0, true, false);
+        root.addItem("91", "91", "INTERNAL_1", "^91(" + VALID_CHARS + "{0,90})$", 0, true, false);
+        root.addItem("92", "92", "INTERNAL_2", "^92(" + VALID_CHARS + "{0,90})$", 0, true, false);
+        root.addItem("93", "93", "INTERNAL_3", "^93(" + VALID_CHARS + "{0,90})$", 0, true, false);
+        root.addItem("94", "94", "INTERNAL_4", "^94(" + VALID_CHARS + "{0,90})$", 0, true, false);
+        root.addItem("95", "95", "INTERNAL_5", "^95(" + VALID_CHARS + "{0,90})$", 0, true, false);
+        root.addItem("96", "96", "INTERNAL_6", "^96(" + VALID_CHARS + "{0,90})$", 0, true, false);
+        root.addItem("97", "97", "INTERNAL_7", "^97(" + VALID_CHARS + "{0,90})$", 0, true, false);
+        root.addItem("98", "98", "INTERNAL_8", "^98(" + VALID_CHARS + "{0,90})$", 0, true, false);
+        root.addItem("99", "99", "INTERNAL_9", "^99(" + VALID_CHARS + "{0,90})$", 0, true, false);
 
         return root;
     }

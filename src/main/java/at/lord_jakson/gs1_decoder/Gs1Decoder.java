@@ -1,7 +1,5 @@
 package at.lord_jakson.gs1_decoder;
 
-import java.io.Serializable;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -10,8 +8,44 @@ import java.util.regex.Pattern;
 
 public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
 {
-    public static final byte GS = 29;
-    public static final char GS_CHAR = 29;
+    public static final char GS = 29;
+
+    private enum Gs1Decoder_CodeType
+    {
+        NONE(0), GS(1), BRACKET_ROUND(2), BRACKET_SQUARE(3);
+
+        private final int value;
+
+        Gs1Decoder_CodeType(int value)
+        {
+            this.value = value;
+        }
+
+        public int getValue()
+        {
+            return value;
+        }
+    }
+
+    private static class Gs1Data_Item
+    {
+        public final String applicationIdentifier;
+        public final String title;
+        public final String regEx;
+        public final int decimal;
+        public final int dataLen;
+        public final boolean varLen;
+
+        public Gs1Data_Item(String applicationIdentifier, String title, String regEx, int decimal, int dataLen, boolean varLen)
+        {
+            this.applicationIdentifier = applicationIdentifier;
+            this.title = title;
+            this.regEx = regEx;
+            this.decimal = decimal;
+            this.dataLen = dataLen;
+            this.varLen = varLen;
+        }
+    }
 
     public static class Gs1Exception extends Exception
     {
@@ -52,26 +86,6 @@ public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
         public int getCode()
         {
             return this.code;
-        }
-    }
-
-    private static class Gs1Data_Item
-    {
-        public final String applicationIdentifier;
-        public final String title;
-        public final String regEx;
-        public final int decimal;
-        public final int dataLen;
-        public final boolean varLen;
-
-        public Gs1Data_Item(String applicationIdentifier, String title, String regEx, int decimal, int dataLen, boolean varLen)
-        {
-            this.applicationIdentifier = applicationIdentifier;
-            this.title = title;
-            this.regEx = regEx;
-            this.decimal = decimal;
-            this.dataLen = dataLen;
-            this.varLen = varLen;
         }
     }
 
@@ -122,8 +136,8 @@ public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
     }
 
 
-    private byte[] array_buffer;
-    private int array_pos;
+    private Gs1DataBuffer buffer;
+    private Gs1Decoder_CodeType codeType;
     private final List<Gs1Item> items;
     private static final Pattern pattern_numeric = Pattern.compile("^\\d+$");
 
@@ -132,18 +146,29 @@ public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
         this.items = new ArrayList<>();
     }
 
-    public static boolean isGS1Code(byte[] array)
+    public static Gs1Decoder_CodeType getCodeType(Gs1DataBuffer buffer)
     {
-        return (array.length > 0 && array[0] == GS);
+        char temp = buffer.readChar();
+        if (temp == GS)
+        {
+            return Gs1Decoder_CodeType.GS;
+        }
+        else if (temp == '(')
+        {
+            return Gs1Decoder_CodeType.BRACKET_ROUND;
+        }
+        else if (temp == '[')
+        {
+            return Gs1Decoder_CodeType.BRACKET_SQUARE;
+        }
+
+        return Gs1Decoder_CodeType.NONE;
     }
 
-    public static boolean isGS1Code(String code)
+    public static Gs1Decoder_CodeType getCodeType(String code)
     {
-        if (!code.isEmpty())
-        {
-            return isGS1Code(code.getBytes(StandardCharsets.US_ASCII));
-        }
-        return false;
+        Gs1DataBuffer buffer = new Gs1DataBuffer(code);
+        return getCodeType(buffer);
     }
 
     private static boolean isNumeric(String strNum)
@@ -155,39 +180,29 @@ public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
         return pattern_numeric.matcher(strNum).matches();
     }
 
-    private Gs1Data_Item readApplicationIdentifier() throws Gs1Exception
+    private static boolean isNumeric(char charNum)
     {
-        String ai = new String(array_buffer, array_pos, 2, StandardCharsets.US_ASCII);
-        array_pos += 2;
-        Gs1DataField_Type temp_item = Gs1DataFields.root.getItem(ai);
-        if (temp_item != null)
+        return charNum >= 48 && charNum <= 57;
+    }
+
+    private Gs1Data_Item readApplicationIdentifier_Gs() throws Gs1Exception
+    {
+        Gs1DataFields.Field_Result temp_item = Gs1DataFields.root.findItem(buffer);
+        String ai = temp_item.data;
+        if (temp_item.fieldResult != null && temp_item.fieldResult.valueType() == Gs1DataField_Type.GS_ITEM)
         {
-            while (temp_item != null && temp_item.valueType() == Gs1DataField_Type.GS_LIST)
-            {
-                String ai_sub = new String(array_buffer, array_pos, 1, StandardCharsets.US_ASCII);
-
-                ai += ai_sub;
-                array_pos += 1;
-
-                temp_item = ((Gs1DataFields.Field_List) temp_item).getItem(ai_sub);
-            }
-        }
-
-        if (temp_item != null && temp_item.valueType() == Gs1DataField_Type.GS_ITEM)
-        {
-            Gs1DataFields.Field_Item item = (Gs1DataFields.Field_Item) temp_item;
+            Gs1DataFields.Field_Item item = (Gs1DataFields.Field_Item) temp_item.fieldResult;
             ai = item.applicationIdentifier;
             int decimals = 0;
 
             if (item.varDec)
             {
-                int temp_int = array_buffer[array_pos];
-                ai += (char) temp_int;
-                array_pos += 1;
+                char temp_char = buffer.readChar();
+                ai += temp_char;
 
-                if (temp_int >= 48 && temp_int <= 57)
+                if (isNumeric(temp_char))
                 {
-                    decimals = temp_int - 48;
+                    decimals = temp_char - 48;
                 }
             }
 
@@ -202,58 +217,111 @@ public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
         throw new Gs1Exception(Gs1Exception.UNKNOWN_APPLICATION_IDENTIFIER, ai);
     }
 
-    private String readDataFix(int dataLen)
+    private Gs1Data_Item readApplicationIdentifier_Bracket(char endBracket) throws Gs1Exception
     {
-        dataLen = Math.min(dataLen, array_buffer.length - array_pos);
-        String result = new String(array_buffer, array_pos, dataLen, StandardCharsets.US_ASCII);
-        array_pos += dataLen;
-        return result;
-    }
-
-    private String readDataVar()
-    {
-        int temp_pos = array_pos;
-        while (temp_pos < array_buffer.length && array_buffer[temp_pos] != GS)
+        String ai = buffer.readDataVar(endBracket);
+        Gs1DataFields.Field_Result temp_item = Gs1DataFields.root.findItem(ai);
+        if (temp_item.fieldResult != null && temp_item.fieldResult.valueType() == Gs1DataField_Type.GS_ITEM)
         {
-            temp_pos += 1;
+            Gs1DataFields.Field_Item item = (Gs1DataFields.Field_Item) temp_item.fieldResult;
+            ai = item.applicationIdentifier;
+            int decimals = 0;
+
+            if (item.varDec)
+            {
+                if (temp_item.data == null || temp_item.data.isEmpty())
+                {
+                    throw new Gs1Exception(Gs1Exception.INVALID_APPLICATION_IDENTIFIER, ai);
+                }
+
+                char temp_char = temp_item.data.charAt(0);
+                ai += temp_char;
+
+                if (isNumeric(temp_char))
+                {
+                    decimals = temp_char - 48;
+                }
+            }
+
+            return new Gs1Data_Item(ai, item.title, item.regEx, decimals, item.dataLen, item.varLen);
         }
 
-        int dataLen = temp_pos - array_pos;
-        String result = new String(array_buffer, array_pos, dataLen, StandardCharsets.US_ASCII);
-        array_pos += dataLen + 1;
-        return result;
+        if (!isNumeric(ai))
+        {
+            throw new Gs1Exception(Gs1Exception.INVALID_APPLICATION_IDENTIFIER, ai);
+        }
+
+        throw new Gs1Exception(Gs1Exception.UNKNOWN_APPLICATION_IDENTIFIER, ai);
+    }
+
+    private Gs1Data_Item readApplicationIdentifier() throws Gs1Exception
+    {
+        switch (codeType)
+        {
+            case GS:
+                return readApplicationIdentifier_Gs();
+            case BRACKET_ROUND:
+                return readApplicationIdentifier_Bracket(')');
+            case BRACKET_SQUARE:
+                return readApplicationIdentifier_Bracket(']');
+        }
+        return null;
+    }
+
+    private String readData(int dataLen)
+    {
+        switch (codeType)
+        {
+            case GS:
+                return dataLen < 0 ? buffer.readDataVar(GS) : buffer.readDataFix(dataLen);
+            case BRACKET_ROUND:
+                return buffer.readDataVar('(');
+            case BRACKET_SQUARE:
+                return buffer.readDataVar('[');
+        }
+        return null;
     }
 
     public Gs1Decoder decodeCode(String code) throws Gs1Exception
     {
-        array_buffer = code.getBytes(StandardCharsets.US_ASCII);
-        if (isGS1Code(array_buffer))
+        buffer = new Gs1DataBuffer(code);
+        codeType = getCodeType(buffer);
+        if (codeType != Gs1Decoder_CodeType.NONE)
         {
-            array_pos = 1;
-            while (array_pos < array_buffer.length)
+            while (buffer.notEod())
             {
                 Gs1Data_Item ai_field = readApplicationIdentifier();
-                String data = ai_field.varLen ? readDataVar() : readDataFix(ai_field.dataLen);
-
-                Matcher matcher = Pattern.compile(ai_field.regEx).matcher(ai_field.applicationIdentifier + data);
-                if (!matcher.matches())
+                if(ai_field != null)
                 {
-                    throw new Gs1Exception(Gs1Exception.INVALID_DATA, "[" + ai_field.applicationIdentifier + "]" + data);
-                }
+                    String data = readData(ai_field.varLen ? -1 : ai_field.dataLen);
+                    if(data == null)
+                    {
+                        throw new Gs1Exception(Gs1Exception.INVALID_DATA, "[" + ai_field.applicationIdentifier + "]");
+                    }
 
-                if (ai_field.decimal > 0)
+                    Matcher matcher = Pattern.compile(ai_field.regEx).matcher(ai_field.applicationIdentifier + data);
+                    if (!matcher.matches())
+                    {
+                        throw new Gs1Exception(Gs1Exception.INVALID_DATA, "[" + ai_field.applicationIdentifier + "]" + data);
+                    }
+
+                    if (ai_field.decimal > 0)
+                    {
+                        if (ai_field.decimal < data.length())
+                        {
+                            data = new StringBuffer(data).insert(data.length() - ai_field.decimal, ".").toString();
+                        }
+                        else
+                        {
+                            throw new Gs1Exception(Gs1Exception.INVALID_DECIMAL, "" + ai_field.decimal);
+                        }
+                    }
+                    items.add(new Gs1Item(ai_field.applicationIdentifier, ai_field.title, data));
+                }
+                else
                 {
-                    if (ai_field.decimal < data.length())
-                    {
-                        data = new StringBuffer(data).insert(data.length() - ai_field.decimal, ".").toString();
-                    }
-                    else
-                    {
-                        throw new Gs1Exception(Gs1Exception.INVALID_DECIMAL, "" + ai_field.decimal);
-                    }
+                    throw new Gs1Exception(Gs1Exception.UNKNOWN_APPLICATION_IDENTIFIER, "");
                 }
-
-                items.add(new Gs1Item(ai_field.applicationIdentifier, ai_field.title, data));
             }
             return this;
         }
