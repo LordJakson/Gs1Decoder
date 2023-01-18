@@ -9,10 +9,11 @@ import java.util.regex.Pattern;
 public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
 {
     public static final char GS = 29;
+    public static final char PC = '%';
 
     private enum Gs1Decoder_CodeType
     {
-        NONE(0), GS(1), BRACKET_ROUND(2), BRACKET_SQUARE(3);
+        NONE(0), GS(1), PC(2), BRACKET_ROUND(3), BRACKET_SQUARE(4);
 
         private final int value;
 
@@ -34,16 +35,14 @@ public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
         public final String regEx;
         public final int decimal;
         public final int dataLen;
-        public final boolean varLen;
 
-        public Gs1Data_Item(String applicationIdentifier, String title, String regEx, int decimal, int dataLen, boolean varLen)
+        public Gs1Data_Item(String applicationIdentifier, String title, String regEx, int decimal, int dataLen)
         {
             this.applicationIdentifier = applicationIdentifier;
             this.title = title;
             this.regEx = regEx;
             this.decimal = decimal;
             this.dataLen = dataLen;
-            this.varLen = varLen;
         }
     }
 
@@ -68,7 +67,7 @@ public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
                     return String.format("Invalid ApplicationIdentifier '%s'", data);
 
                 case INVALID_DATA:
-                    return String.format("Invalid Data '%s'", data);
+                    return String.format("+++'%s'", data);
 
                 case INVALID_DECIMAL:
                     return String.format("Invalid Decimal '%s'", data);
@@ -94,18 +93,20 @@ public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
         public final String applicationIdentifier;
         public final String title;
         public final String data;
+        public final String error;
 
-        public Gs1Item(String applicationIdentifier, String title, String data)
+        public Gs1Item(String applicationIdentifier, String title, String data, String error)
         {
             this.applicationIdentifier = applicationIdentifier;
             this.title = title;
             this.data = data;
+            this.error = error;
         }
 
         @Override
         public String toString()
         {
-            return applicationIdentifier + ":" + title + ":" + data;
+            return applicationIdentifier + ":" + title + ":" + data + (error != null ? " (" + error + ")" : "");
         }
     }
 
@@ -153,6 +154,10 @@ public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
         {
             return Gs1Decoder_CodeType.GS;
         }
+        else if (temp == PC)
+        {
+            return Gs1Decoder_CodeType.PC;
+        }
         else if (temp == '(')
         {
             return Gs1Decoder_CodeType.BRACKET_ROUND;
@@ -185,7 +190,7 @@ public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
         return charNum >= 48 && charNum <= 57;
     }
 
-    private Gs1Data_Item readApplicationIdentifier_Gs() throws Gs1Exception
+    private Gs1Data_Item readApplicationIdentifier_Var() throws Gs1Exception
     {
         Gs1DataFields.Field_Result temp_item = Gs1DataFields.root.findItem(buffer);
         String ai = temp_item.data;
@@ -195,7 +200,7 @@ public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
             ai = item.applicationIdentifier;
             int decimals = 0;
 
-            if (item.varDec)
+            if (item.getVarDec())
             {
                 char temp_char = buffer.readChar();
                 ai += temp_char;
@@ -206,7 +211,7 @@ public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
                 }
             }
 
-            return new Gs1Data_Item(ai, item.title, item.regEx, decimals, item.dataLen, item.varLen);
+            return new Gs1Data_Item(ai, item.title, item.regEx, decimals, item.getDataLen());
         }
 
         if (!isNumeric(ai))
@@ -217,7 +222,7 @@ public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
         throw new Gs1Exception(Gs1Exception.UNKNOWN_APPLICATION_IDENTIFIER, ai);
     }
 
-    private Gs1Data_Item readApplicationIdentifier_Bracket(char endBracket) throws Gs1Exception
+    private Gs1Data_Item readApplicationIdentifier_Until(char endBracket) throws Gs1Exception
     {
         String ai = buffer.readDataVar(endBracket);
         Gs1DataFields.Field_Result temp_item = Gs1DataFields.root.findItem(ai);
@@ -227,7 +232,7 @@ public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
             ai = item.applicationIdentifier;
             int decimals = 0;
 
-            if (item.varDec)
+            if (item.getVarDec())
             {
                 if (temp_item.data == null || temp_item.data.isEmpty())
                 {
@@ -243,7 +248,7 @@ public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
                 }
             }
 
-            return new Gs1Data_Item(ai, item.title, item.regEx, decimals, item.dataLen, item.varLen);
+            return new Gs1Data_Item(ai, item.title, item.regEx, decimals, item.getDataLen());
         }
 
         if (!isNumeric(ai))
@@ -259,11 +264,12 @@ public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
         switch (codeType)
         {
             case GS:
-                return readApplicationIdentifier_Gs();
+            case PC:
+                return readApplicationIdentifier_Var();
             case BRACKET_ROUND:
-                return readApplicationIdentifier_Bracket(')');
+                return readApplicationIdentifier_Until(')');
             case BRACKET_SQUARE:
-                return readApplicationIdentifier_Bracket(']');
+                return readApplicationIdentifier_Until(']');
         }
         return null;
     }
@@ -273,7 +279,9 @@ public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
         switch (codeType)
         {
             case GS:
-                return dataLen < 0 ? buffer.readDataVar(GS) : buffer.readDataFix(dataLen);
+                return dataLen <= 0 ? buffer.readDataVar(GS) : buffer.readDataFix(dataLen);
+            case PC:
+                return dataLen <= 0 ? buffer.readDataVar(PC) : buffer.readDataFix(dataLen);
             case BRACKET_ROUND:
                 return buffer.readDataVar('(');
             case BRACKET_SQUARE:
@@ -291,10 +299,11 @@ public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
             while (buffer.notEod())
             {
                 Gs1Data_Item ai_field = readApplicationIdentifier();
-                if(ai_field != null)
+                if (ai_field != null)
                 {
-                    String data = readData(ai_field.varLen ? -1 : ai_field.dataLen);
-                    if(data == null)
+                    String data = readData(ai_field.dataLen);
+                    String error = null;
+                    if (data == null)
                     {
                         throw new Gs1Exception(Gs1Exception.INVALID_DATA, "[" + ai_field.applicationIdentifier + "]");
                     }
@@ -302,7 +311,7 @@ public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
                     Matcher matcher = Pattern.compile(ai_field.regEx).matcher(ai_field.applicationIdentifier + data);
                     if (!matcher.matches())
                     {
-                        throw new Gs1Exception(Gs1Exception.INVALID_DATA, "[" + ai_field.applicationIdentifier + "]" + data);
+                        error = "Invalid Data: [" + ai_field.applicationIdentifier + "]" + data;
                     }
 
                     if (ai_field.decimal > 0)
@@ -316,7 +325,7 @@ public class Gs1Decoder implements Iterable<Gs1Decoder.Gs1Item>
                             throw new Gs1Exception(Gs1Exception.INVALID_DECIMAL, "" + ai_field.decimal);
                         }
                     }
-                    items.add(new Gs1Item(ai_field.applicationIdentifier, ai_field.title, data));
+                    items.add(new Gs1Item(ai_field.applicationIdentifier, ai_field.title, data, error));
                 }
                 else
                 {
